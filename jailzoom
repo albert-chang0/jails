@@ -1,0 +1,66 @@
+#!/usr/bin/bash
+EXIT_FAILURE_NO_DEB=1
+EXIT_FAILURE_PKG_NOT_FILE=2
+EXIT_FAILURE_PRE_SSH=3
+EXIT_FAILURE_SSH_ACCESS=4
+EXIT_FAILURE_CD=5
+
+printf "Elevating permission to set image to read-write\n"
+sudo chmod 0666 /opt/qemu/zoom.cow
+
+[ $# -eq 1 ] || { printf "zoom deb package not provided\n" >&2; exit $EXIT_FAILURE_NO_DEB; }
+[ -f "$1" ] || { printf "zoom deb package is not a file\n" >&2; exit $EXIT_FAILURE_PKG_NOT_FILE; }
+[ -n "$SSH_AUTH_SOCK" ] || { printf "ssh agent does not appear to be running\n" >&2; exit $EXIT_FAILURE_PRE_SSH; }
+
+_me="$(realpath "$0")"
+_home="$(dirname "$_me")"
+qemu_base_dir="/opt/qemu"
+zoom_pkg="$1"
+
+local_port=2000
+while lsof -Pnti tcp:${local_port} -s tcp:listen &> /dev/null && lsof -Pnti tcp:$((local_port + 1)) -s tcp:listen; do
+  local_port=$((local_port + 1))
+done
+printf "local ssh ports: %d\nlocal vnc port %d\n" $local_port $((local_port + 1))
+
+cd "$qemu_base_dir" || { printf "failed to change dir to %s\n" "$qemu_base_dir" >&2; exit $EXIT_FAILURE_CD; }
+rm zoom.cow &> /dev/null
+qemu-img create -b debian.img -F raw -f qcow2 zoom.cow
+qemu-system-x86_64 -enable-kvm -m 2G -nic "user,hostfwd=tcp::${local_port}-:22" -drive "file=zoom.cow,format=qcow2" -vnc :$((local_port + 1)) &
+
+printf "waiting for ssh to be available."
+while ! lsof -Pnti tcp:${local_port} -s tcp:listen &> /dev/null; do printf .; sleep 0.1; done
+can_ssh=0
+for _ in {0..299}; do
+  # bug in setup: -T hangs instead of returning immediately
+  if ssh -qp $local_port -o ConnectTimeout=1 localhost : &> /dev/null; then
+    can_ssh=1
+    break
+  fi
+  printf .
+  sleep 0.1
+done
+printf "\n"
+[ $can_ssh -eq 1 ] || { printf "failed to ssh to debian image\n" >&2; exit $EXIT_FAILURE_SSH_ACCESS; }
+
+cd "$_home" || { printf "failed to change dir to %s\n" "$_home" >&2; exit $EXIT_FAILURE_CD; }
+
+while IFS= read -rd '' i; do
+  scp -P $local_port "$i" "localhost:${i#remote}"
+done < <(find remote -type f -print0)
+
+zoom_pkg_basename="$(basename "$zoom_pkg")"
+scp -P $local_port "$zoom_pkg" localhost:/root/
+cat << EOF | ssh -p $local_port localhost
+printf "zoom jail" > /etc/motd
+dpkg -i "/root/${zoom_pkg_basename}"
+apt -fy install
+dpkg -i "/root/${zoom_pkg_basename}"
+rm "/root/${zoom_pkg_basename}"
+sed -i '/^exec .*/i zoom &' /home/user/.xinitrc
+poweroff
+EOF
+wait
+printf "Elevating permission to set image to read-only\n"
+sudo chmod 0444 /opt/qemu/zoom.cow
+printf "Finished setting up zoom jail!\n"

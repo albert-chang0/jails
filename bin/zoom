@@ -1,0 +1,34 @@
+#!/usr/bin/bash
+format_num() {
+  printf "%03d" "$1"
+}
+
+_cmd="$0"
+_me="$(realpath "$_cmd")"
+_home="$(dirname "$_me")"
+
+if [ $# -ne 2 ]; then
+  printf "usage: %s <webcam_bus> <webcam_address>\n\n" "$_cmd"
+  lsusb
+  exit 1
+fi
+
+hostbus="$1"
+hostaddr="$2"
+
+f_hostbus="$(format_num "$hostbus")"
+f_hostaddr="$(format_num "$hostaddr")"
+overlay_loc="${XDG_RUNTIME_DIR}/zoom.cow"
+
+rm "$overlay_loc" &> /dev/null
+
+qemu-img create -b "/opt/qemu/zoom.cow" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/null
+usb_dev="/dev/bus/usb/${f_hostbus}/${f_hostaddr}"
+og="$(stat -c %u:%g "$usb_dev")"
+printf "Elevating permissions to chown USB device\n"
+sudo chown "$(id -u):$(id -g)" "$usb_dev"
+qemu-system-x86_64 -enable-kvm -m 2G -nic "user,hostfwd=tcp::2000-:22" -vga virtio -audiodev pa,id=snd0 -device ich9-intel-hda -device hda-duplex,audiodev=snd0 -device usb-ehci,id=ehci -device "usb-host,bus=ehci.0,hostbus=$hostbus,hostaddr=$hostaddr" -drive file="$overlay_loc",format=qcow2
+rm "$overlay_loc" &> /dev/null
+
+printf "Elevating permissions to chown USB device\n"
+sudo chown "$og" "$usb_dev"
