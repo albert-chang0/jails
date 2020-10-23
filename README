@@ -17,3 +17,10 @@ The base image is a Debian minimal install with at least Firefox ESR
 and wm2 installed and located at `/opt/qemu/debian.img`. Note that an
 eventual goal is to have a script be able to create the base image
 given the installation image.
+
+There is also an assumption that PulseAudio is being used on the host,
+and possibly other configurations. This will likely change in the
+future to make it easier to migrate to other systems, even though
+PulseAudio is likely to be available on other systems. Considering this
+is meant to be for personal use, there is not a strong need to make so
+much configurable.
