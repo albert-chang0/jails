@@ -11,6 +11,7 @@ usage() {
   printf "usage: %s <package>\n" "$_CMD"
 }
 
+check_deps qemu-img qemu-system-x86_64
 check_perms
 
 if [ $# -ne 1 ]; then
@@ -19,47 +20,15 @@ if [ $# -ne 1 ]; then
 fi
 
 pkg="$1"
-pkg_name="$(basename "$pkg")"
 shift
-name="$(printf "%s" "$pkg_name" | sed -E -e 's/([a-zA-Z0-9]+)[_.-].*/\1/')"
+pkg_name="$(basename "$pkg")"
+name="$(name_from_pkg "$pkg_name")"
 mkjail_specific="${_CMD_ABS}.${name}"
-img_name="${name}.${kiosk_img}"
 
 if [ "$name" = "debian" ] && [ "${pkg_name##*.}" == "iso" ]; then
   mkjail_base="${_CMD_ABS}.base"
-  exec "$mkjail_base"
+  exec "$mkjail_base" "$pkg"
 fi
-[ -x "${mkjail_specific}" ] && exec "$mkjail_specific"
+[ -x "${mkjail_specific}" ] && exec "$mkjail_specific" "$pkg"
 
-if [ ! -f "${pkg}" ]; then
-  usage >&2
-  exit $EXIT_FAILURE_PKG_NOT_FILE
-fi
-check_ssh_agent
-
-local_port="$(find_open_port 2000)"
-printf "local ssh ports: %d\n" $local_port
-
-cd_or_die "$qemu_base_dir"
-rm "${img_name}" &> /dev/null
-chmod 0777 "${qemu_base_dir}"
-qemu-img create -b "${kiosk_img}" -F qcow2 -f qcow2 "${img_name}"
-qemu-system-x86_64 -nographic -display none -enable-kvm -m 2G -nic "user,hostfwd=tcp::${local_port}-:22" -drive "file=${img_name},format=qcow2" &
-cd_or_die "$OLDPWD"
-
-wait_for_ssh_or_die "$local_port"
-scp -P $local_port -o StrictHostKeyChecking=no "$pkg" localhost:/root/
-cat << EOF | ssh -p $local_port -o StrictHostKeyChecking=no localhost
-export DEBIAN_FRONTEND=noninteractive
-printf "${name} jail" > /etc/motd
-dpkg -i "/root/${pkg_name}"
-apt -fy install
-dpkg -i "/root/${pkg_name}"
-rm "/root/${pkg_name}"
-sed -i '$ i\\${name} &' /home/user/.xinitrc
-poweroff
-EOF
-wait
-
-chmod 0444 "${qemu_base_dir}/${img_name}"
-printf "Finished setting up ${name} jail!\n"
+stage_overlay "$pkg"

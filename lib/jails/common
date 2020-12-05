@@ -46,7 +46,7 @@ find_open_port() {
   local port="$1"
 
   while lsof -Pnti tcp:${port} -s tcp:listen &> /dev/null && lsof -Pnti tcp:$((port + 1)) -s tcp:listen; do
-    local_port=$((port + 1))
+    port=$((port + 1))
   done
   printf "%s" "$port"
 }
@@ -56,7 +56,7 @@ wait_for_ssh_or_die() {
   local can_ssh=0
 
   printf "waiting for ssh to be available."
-  while ! lsof -Pnti tcp:${local_port} -s tcp:listen &> /dev/null; do printf .; sleep 0.1; done
+  while ! lsof -Pnti tcp:${port} -s tcp:listen &> /dev/null; do printf .; sleep 0.1; done
   for _ in {0..299}; do
     # bug in setup: -T hangs instead of returning immediately
     if ssh -qp $port -o ConnectTimeout=1 -o StrictHostKeyChecking=no localhost : &> /dev/null; then
@@ -75,4 +75,51 @@ wait_for_ssh_or_die() {
 
 cd_or_die() {
   cd "$1" || { printf "failed to change dir to %s\n" "$1" >&2; exit $EXIT_FAILURE_CD; }
+}
+
+name_from_pkg() {
+  printf "%s" "$1" | sed -E -e 's/([a-zA-Z0-9]+)[_.-].*/\1/'
+}
+
+stage_overlay() {
+  check_ssh_agent
+
+  local pkg="$1"
+  shift
+  local pkg_name="$(basename "$pkg")"
+  local name="$(name_from_pkg "$pkg_name")"
+  local img_name="${name}.${kiosk_img}"
+  if [ ! -f "${pkg}" ]; then
+    usage >&2
+    exit $EXIT_FAILURE_PKG_NOT_FILE
+  fi
+
+  local port="$(find_open_port 2000)"
+  printf "local ssh ports: %d\n" $port
+
+  cd_or_die "$qemu_base_dir"
+  rm "${img_name}" &> /dev/null
+  chmod 0777 "${qemu_base_dir}"
+  qemu-img create -b "${kiosk_img}" -F qcow2 -f qcow2 "${img_name}"
+  qemu-system-x86_64 -nographic -display none -enable-kvm -m 2G -nic "user,hostfwd=tcp::${port}-:22" -drive "file=${img_name},format=qcow2" &
+  cd_or_die "$OLDPWD"
+
+  wait_for_ssh_or_die "$port"
+  scp -P $port -o StrictHostKeyChecking=no "$pkg" localhost:/root/
+  cat << EOF | ssh -p $port -o StrictHostKeyChecking=no localhost
+    export DEBIAN_FRONTEND=noninteractive
+    printf "${name} jail" > /etc/motd
+    dpkg -i "/root/${pkg_name}"
+    apt -fy install
+    dpkg -i "/root/${pkg_name}"
+    rm "/root/${pkg_name}"
+    sed -i '$ i\\${name} &' /home/user/.xinitrc
+    $@
+    apt -y clean
+    poweroff
+EOF
+  wait
+
+  chmod 0444 "${qemu_base_dir}/${img_name}"
+  printf "Finished setting up ${name} jail!\n"
 }
