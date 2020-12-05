@@ -11,8 +11,6 @@ format_num() {
   printf "%03d" "$1"
 }
 
-check_perms
-
 if [ $# -ne 3 ]; then
   printf "usage: %s <type> <webcam_bus> <webcam_address>\n\n" "$_CMD"
   lsusb
@@ -38,8 +36,19 @@ rm "$overlay_loc" &> /dev/null
 qemu-img create -b "${type_base_img}" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/null
 usb_dev="/dev/bus/usb/${f_hostbus}/${f_hostaddr}"
 og="$(stat -c %u:%g "$usb_dev")"
-chown "$(id -u):$(id -g)" "$usb_dev"
-qemu-system-x86_64 -enable-kvm -m 2G -nic "user,hostfwd=tcp::2000-:22" -vga virtio -audiodev pa,id=snd0 -device ich9-intel-hda -device hda-duplex,audiodev=snd0 -device usb-ehci,id=ehci -device "usb-host,bus=ehci.0,hostbus=$hostbus,hostaddr=$hostaddr" -drive file="$overlay_loc",format=qcow2
+printf "elevating permissions to take over webcam\n"
+if ! sudo chown "$(id -u):$(id -g)" "$usb_dev"; then
+  printf "failed to elevate permissions\n" >&2
+  exit $EXIT_FAILURE_PERMISSION
+fi
+qemu-system-x86_64 -enable-kvm -m 2G -nic "user,hostfwd=tcp::2000-:22" -vga virtio -audiodev pa,id=snd0 -device ich9-intel-hda -device hda-duplex,audiodev=snd0 -device usb-ehci,id=ehci -device "usb-host,bus=ehci.0,hostbus=${hostbus},hostaddr=${hostaddr}" -drive file="${overlay_loc},format=qcow2"
 rm "$overlay_loc" &> /dev/null
 
-chown "$og" "$usb_dev"
+printf "elevating permissions to return ownership of webcam\n"
+while :; do
+  for _ in {1..3}; do
+    chown "$og" "$usb_dev" && exit
+  done
+  printf "failed to elevate permissions; sleeping for retry in 10 minutes\n"
+  sleep 600
+done
