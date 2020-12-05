@@ -1,0 +1,78 @@
+#!/usr/bin/bash
+EXIT_FAILURE_MISSING_DEPENDENCIES=1
+EXIT_FAILURE_PERMISSION=2
+EXIT_FAILURE_MISSING_PKG=3
+EXIT_FAILURE_PKG_NOT_FILE=4
+EXIT_FAILURE_PRE_SSH=5
+EXIT_FAILURE_SSH_ACCESS=6
+EXIT_FAILURE_CD=7
+
+qemu_base_dir="/opt/qemu"
+base_img="debian.img"
+kiosk_img="kiosk.debian.cow"
+zoom_img="zoom.kiosk.debian.cow"
+overlay_loc="${XDG_RUNTIME_DIR}/zoom.cow"
+
+check_deps() {
+  declare -a missing
+  for i in "$@"; do
+    command -v "$i" > /dev/null || missing+=("$i")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    printf 'missing commands: %s' "${missing[0]}" >&2
+    for i in $(seq 1 ${#missing[@]}); do
+      printf ', %s' "$i" >&2
+    done
+    printf '\n' >&2
+    exit $EXIT_FAILURE_MISSING_DEPENDENCIES
+  fi
+}
+
+check_perms() {
+  if [ $UID -ne 0 ]; then
+    printf "root privileges required\n" >&2
+    exit $EXIT_FAILURE_PERMISSION
+  fi
+}
+
+check_ssh_agent() {
+  if [ -z "$SSH_AUTH_SOCK" ]; then
+    printf "ssh agent does not appear to be running\n"
+    exit $EXIT_FAILURE_PRE_SSH
+  fi
+}
+
+find_open_port() {
+  local port="$1"
+
+  while lsof -Pnti tcp:${port} -s tcp:listen &> /dev/null && lsof -Pnti tcp:$((port + 1)) -s tcp:listen; do
+    local_port=$((port + 1))
+  done
+  printf "%s" "$port"
+}
+
+wait_for_ssh_or_die() {
+  local port="$1"
+  local can_ssh=0
+
+  printf "waiting for ssh to be available."
+  while ! lsof -Pnti tcp:${local_port} -s tcp:listen &> /dev/null; do printf .; sleep 0.1; done
+  for _ in {0..299}; do
+    # bug in setup: -T hangs instead of returning immediately
+    if ssh -qp $port -o ConnectTimeout=1 -o StrictHostKeyChecking=no localhost : &> /dev/null; then
+      can_ssh=1
+      break
+    fi
+    printf .
+    sleep 0.1
+  done
+  printf "\n"
+  if [ "$can_ssh" -ne 1 ]; then
+    printf "failed to ssh to debian image\n" >&2
+    exit $EXIT_FAILURE_SSH_ACCESS
+  fi
+}
+
+cd_or_die() {
+  cd "$1" || { printf "failed to change dir to %s\n" "$1" >&2; exit $EXIT_FAILURE_CD; }
+}

@@ -6,17 +6,12 @@ of virtual machine is to make it easier to get around certain issues
 with containers and chroots. For example, some of the applications that
 are jailed spawn their own X server to prevent eavesdropping. While
 spawning an X server may not necessarily be impossible with a
-container, it is likely easier in a virtual machine.
+container, it is more difficult.
 
 ## Assumptions
 The virtual machine technology is kvm-based qemu. This allows a common
 virtual machine with overlays that can be used to help save space and
 to make each run idempotent.
-
-The base image is a Debian minimal install with at least Firefox ESR
-and wm2 installed and located at `/opt/qemu/debian.img`. Note that an
-eventual goal is to have a script be able to create the base image
-given the installation image.
 
 There is also an assumption that PulseAudio is being used on the host,
 and possibly other configurations. This will likely change in the

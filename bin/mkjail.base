@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+_CMD="$0"
+_CMD_ABS="$(realpath "$_CMD")"
+_ME="$(basename "$_CMD_ABS")"
+_HOME="$(dirname "$_CMD_ABS")"
+_LIB="${_HOME}/../lib/jails"
+
+. "${_LIB}/common"
+
+usage() {
+  printf "usage: %s <deb_installer.iso>\n" "$_CMD"
+}
+
+check_deps cpio genisoimage
+check_perms
+if [ $# -ne 1 ]; then
+  usage >&2
+  exit $EXIT_dieURE_MISSING_PKG
+fi
+
+iso_file="$(realpath "$1")"
+shift
+
+if [ ! -f "${iso_file}" ]; then
+  usage >&2
+  exit $EXIT_dieURE_PKG_NOT_FILE
+fi
+check_ssh_agent
+
+deb_stage="$(mktemp -d)"
+deb_mount="$(mktemp -d)"
+
+mount -o loop "${iso_file}" "${deb_mount}"
+rsync -avh "${deb_mount}/" "${deb_stage}/"
+umount "${deb_mount}"
+rm -r "${deb_mount}"
+
+install_dir="$(find "${deb_stage}" -mindepth 1 -maxdepth 1 -name 'install.*')"
+
+chmod +w -R "${install_dir}"
+gunzip "${install_dir}/initrd.gz"
+install -m0666 "${_LIB}/preseed.cfg" "${deb_stage}/preseed.cfg"
+printf 'preseed.cfg\n' | cpio -D "${deb_stage}" -H newc -o -A -F "${install_dir}/initrd"
+gzip "${install_dir}/initrd"
+chmod -w -R "${install_dir}"
+
+sed -i -e 's/^default/default autodark/' "${deb_stage}/isolinux/isolinux.cfg"
+find "${deb_stage}/isolinux" -name '*.cfg' -exec sed -i -e '/auto=true/s/\(.*\) --- \(.*\)/\1 console=ttyS0 --- \2/' {} +
+
+cd_or_die "${deb_stage}"
+chmod +w md5sum.txt
+find . -follow -type f ! -name md5sum.txt -print0 | xargs -0 md5sum > md5sum.txt
+chmod -w md5sum.txt
+cd_or_die "${OLDPWD}"
+
+preseed_iso="$(mktemp)"
+genisoimage -r -J -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -o "${preseed_iso}" "${deb_stage}"
+
+local_port="$(find_open_port 2000)"
+
+if [ ! -d "$qemu_base_dir" ]; then
+  mkdir -p "$qemu_base_dir"
+  chmod 0755 "$qemu_base_dir"
+fi
+
+cd_or_die "${qemu_base_dir}"
+rm "${kiosk_img}" &> /dev/null
+qemu-img create -f raw "${base_img}" 3G
+qemu-system-x86_64 -nographic -enable-kvm -m 2G -cdrom "${preseed_iso}" -boot order=d -drive file="${base_img},format=raw"
+chmod 0444 "${base_img}"
+qemu-img create -b "${base_img}" -F raw -f qcow2 "${kiosk_img}"
+qemu-system-x86_64 -nographic -display none -enable-kvm -m 2G -nic "user,hostfwd=tcp::${local_port}-:22" -drive "file=${kiosk_img},format=qcow2" &
+wait_for_ssh_or_die "$local_port"
+cat << EOF | ssh -p "${local_port}" -o StrictHostKeyChecking=no localhost
+DEBIAN_FRONTEND=noninteractive apt -y install xserver-common xinit xterm alsa-utils firefox-esr wm2
+apt clean
+printf '\n\nif [ -z "\${DISPLAY}\" ] && [ "\${XDG_VTNR}\" -eq 1 ]; then\n  exec startx\nfi' >> /home/user/.bashrc
+sed -i -E -e 's/^#(NAutoVTs)=[0-9]+$/\1=0/' -e 's/^#(ReserveVT)=[0-9]+$/\1=1/' /etc/systemd/logind.conf
+mkdir -p /etc/systemd/system/getty@tty1.service.d /etc/systemd/system/getty.target.wants
+printf '[Service]\nExecStart=\nExecStart=-/usr/sbin/agetty --autologin user %%I xterm' > /etc/systemd/system/getty@tty1.service.d/override.conf
+printf '#!/bin/sh\nxset -dpms\nxset s off\nxset s noblank\nfirefox &\nxterm &\nexec wm2' > /home/user/.xinitrc
+chown user:user /home/user/.xinitrc
+chmod 0500 /home/user/.xinitrc
+sed -i -E -e 's/^(GRUB_TIMEOUT)=[0-9]+$/\1=0/' /etc/default/grub
+update-grub
+poweroff
+EOF
+wait
+chmod 0444 "${kiosk_img}"
+cd_or_die "${OLDPWD}"
+
+rm -r "${deb_stage}" "${preseed_iso}"
+printf "Finished setting up base and kiosk images!\n"
