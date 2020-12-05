@@ -6,12 +6,12 @@ EXIT_FAILURE_PKG_NOT_FILE=4
 EXIT_FAILURE_PRE_SSH=5
 EXIT_FAILURE_SSH_ACCESS=6
 EXIT_FAILURE_CD=7
+EXIT_FAILURE_BASE_IMG_NOT_FOUND=8
 
 qemu_base_dir="/opt/qemu"
 base_img="debian.img"
 kiosk_img="kiosk.debian.cow"
-zoom_img="zoom.kiosk.debian.cow"
-overlay_loc="${XDG_RUNTIME_DIR}/zoom.cow"
+overlay_run_dir="${XDG_RUNTIME_DIR}"
 
 check_deps() {
   declare -a missing

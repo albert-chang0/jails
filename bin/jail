@@ -13,23 +13,29 @@ format_num() {
 
 check_perms
 
-if [ $# -ne 2 ]; then
-  printf "usage: %s <webcam_bus> <webcam_address>\n\n" "$_CMD"
+if [ $# -ne 3 ]; then
+  printf "usage: %s <type> <webcam_bus> <webcam_address>\n\n" "$_CMD"
   lsusb
   exit 1
 fi
 
-hostbus="$1"
-hostaddr="$2"
-shift 2
+j_type="$1"
+hostbus="$2"
+hostaddr="$3"
+shift 3
 
 f_hostbus="$(format_num "$hostbus")"
 f_hostaddr="$(format_num "$hostaddr")"
-overlay_loc="${XDG_RUNTIME_DIR}/zoom.cow"
+overlay_loc="${overlay_run_dir}/${j_type}.cow"
+type_base_img="${qemu_base_dir}/${j_type}.${kiosk_img}"
+
+if [ ! -f "$type_base_img" ]; then
+  printf "base image for %s not found; expected %s\n" "$j_type" "$type_base_img" >&2
+  exit $EXIT_FAILURE_BASE_IMG_NOT_FOUND
+fi
 
 rm "$overlay_loc" &> /dev/null
-
-qemu-img create -b "/opt/qemu/zoom.cow" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/null
+qemu-img create -b "${type_base_img}" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/null
 usb_dev="/dev/bus/usb/${f_hostbus}/${f_hostaddr}"
 og="$(stat -c %u:%g "$usb_dev")"
 chown "$(id -u):$(id -g)" "$usb_dev"
