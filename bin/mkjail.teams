@@ -1,0 +1,34 @@
+#!/usr/bin/bash
+_CMD="$0"
+_CMD_ABS="$(realpath "$_CMD")"
+_ME="$(basename "$_CMD_ABS")"
+_HOME="$(dirname "$_CMD_ABS")"
+_LIB="${_HOME}/../lib/jails"
+
+. "${_LIB}/common"
+
+usage() {
+  printf "usage: %s <package>\n" "$_CMD"
+}
+
+check_deps qemu-img qemu-system-x86_64
+check_perms
+
+if [ $# -ne 1 ]; then
+  usage >&2
+  exit $EXIT_FAILURE_MISSING_PKG
+fi
+
+pkg="$1"
+shift
+pkg_name="$(basename "$pkg")"
+name="$(name_from_pkg "$pkg_name")"
+mkjail_specific="${_CMD_ABS}.${name}"
+
+if [ "$name" = "debian" ] && [ "${pkg_name##*.}" == "iso" ]; then
+  mkjail_base="${_CMD_ABS}.base"
+  exec "$mkjail_base"
+fi
+[ -x "${mkjail_specific}" ] && exec "$mkjail_specific"
+
+stage_overlay "$pkg" apt -y install libsecret-1-0
