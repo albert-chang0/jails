@@ -19,3 +19,7 @@ future to make it easier to migrate to other systems, even though
 PulseAudio is likely to be available on other systems. Considering this
 is meant to be for personal use, there is not a strong need to make so
 much configurable.
+
+## TODO
+* Single sudo session
+* Configurable devices (webcam, audio input, audio output)
