@@ -12,9 +12,10 @@ qemu_base_dir="/opt/qemu"
 base_img="debian.img"
 kiosk_img="kiosk.debian.cow"
 overlay_run_dir="${XDG_RUNTIME_DIR}"
+owner_changer_flag="${overlay_run_dir}/jail.flag"
 
 check_deps() {
-  declare -a missing
+  local -a missing
   for i in "$@"; do
     command -v "$i" > /dev/null || missing+=("$i")
   done

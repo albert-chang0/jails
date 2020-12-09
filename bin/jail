@@ -7,8 +7,33 @@ _LIB="${_HOME}/../lib/jails"
 
 . "${_LIB}/common"
 
+check_deps lsof sudo
+
 format_num() {
   printf "%03d" "$1"
+}
+
+restore_owner() {
+  local usb_dev="$1"
+  local og="$2"
+
+  touch "${owner_changer_flag}"
+  chmod 0666 "${owner_changer_flag}"
+  sleep 1
+  while lsof "${owner_changer_flag}" &> /dev/null; do
+    sleep 10
+  done
+  rm "${owner_changer_flag}"
+  chown "${og}" "${usb_dev}"
+}
+
+change_owner() {
+  local usb_dev="$1"
+  local og="$(stat -c %u:%g "${usb_dev}")"
+
+  chown "$_uid:$_gid" "${usb_dev}" || return 1
+  restore_owner "${usb_dev}" "${og}" &
+  return
 }
 
 if [ $# -ne 3 ]; then
@@ -34,21 +59,19 @@ fi
 
 rm "$overlay_loc" &> /dev/null
 qemu-img create -b "${type_base_img}" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/null
-usb_dev="/dev/bus/usb/${f_hostbus}/${f_hostaddr}"
-og="$(stat -c %u:%g "$usb_dev")"
-printf "elevating permissions to take over webcam\n"
-if ! sudo chown "$(id -u):$(id -g)" "$usb_dev"; then
-  printf "failed to elevate permissions\n" >&2
-  exit $EXIT_FAILURE_PERMISSION
-fi
-qemu-system-x86_64 -enable-kvm -m 2G -nic "user,hostfwd=tcp::2000-:22" -vga virtio -audiodev pa,id=snd0 -device ich9-intel-hda -device hda-duplex,audiodev=snd0 -device usb-ehci,id=ehci -device "usb-host,bus=ehci.0,hostbus=${hostbus},hostaddr=${hostaddr}" -drive file="${overlay_loc},format=qcow2"
-rm "$overlay_loc" &> /dev/null
-
-printf "elevating permissions to return ownership of webcam\n"
+ch_success=0
 while :; do
   for _ in {1..3}; do
-    chown "$og" "$usb_dev" && exit
+    if sudo bash -c "_uid="$(id -u)"; _gid="$(id -g)"; owner_changer_flag='${owner_changer_flag}'; $(declare -f restore_owner); $(declare -f change_owner); change_owner '/dev/bus/usb/${f_hostbus}/${f_hostaddr}'"; then
+      while [ ! -e "${owner_changer_flag}" ]; do :; done
+      sleep 0.1
+      exec 5<> "${owner_changer_flag}"
+      ch_success=1
+      break
+    fi
   done
-  printf "failed to elevate permissions; sleeping for retry in 10 minutes\n"
+  [ "$ch_success" -ne 0 ] && break
   sleep 600
 done
+qemu-system-x86_64 -enable-kvm -m 2G -nic "user,hostfwd=tcp::2000-:22" -vga virtio -audiodev pa,id=snd0 -device ich9-intel-hda -device hda-duplex,audiodev=snd0 -device usb-ehci,id=ehci -device "usb-host,bus=ehci.0,hostbus=${hostbus},hostaddr=${hostaddr}" -drive file="${overlay_loc},format=qcow2"
+rm "$overlay_loc" &> /dev/null

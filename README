@@ -21,5 +21,4 @@ is meant to be for personal use, there is not a strong need to make so
 much configurable.
 
 ## TODO
-* Single sudo session
 * Configurable devices (webcam, audio input, audio output)
