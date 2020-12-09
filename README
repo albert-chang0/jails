@@ -21,4 +21,5 @@ is meant to be for personal use, there is not a strong need to make so
 much configurable.
 
 ## TODO
+* Configurable passwords for root and user
 * Configurable devices (webcam, audio input, audio output)
