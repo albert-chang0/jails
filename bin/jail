@@ -1,10 +1,13 @@
 #!/usr/bin/bash
 _CMD="$0"
 _CMD_ABS="$(realpath "$_CMD")"
+# shellcheck disable=SC2034
+# nice to always have around
 _ME="$(basename "$_CMD_ABS")"
 _HOME="$(dirname "$_CMD_ABS")"
 _LIB="${_HOME}/../lib/jails"
 
+# shellcheck source=lib/jails/common
 . "${_LIB}/common"
 
 check_deps lsof sudo
@@ -29,9 +32,11 @@ restore_owner() {
 
 change_owner() {
   local usb_dev="$1"
-  local og="$(stat -c %u:%g "${usb_dev}")"
+  local new_owner="$2"
+  local og
 
-  chown "$_uid:$_gid" "${usb_dev}" || return 1
+  og="$(stat -c %u:%g "${usb_dev}")"
+  chown "${new_owner}" "${usb_dev}" || return 1
   restore_owner "${usb_dev}" "${og}" &
   return
 }
@@ -45,7 +50,6 @@ fi
 j_type="$1"
 hostbus="$2"
 hostaddr="$3"
-shift 3
 
 f_hostbus="$(format_num "$hostbus")"
 f_hostaddr="$(format_num "$hostaddr")"
@@ -62,7 +66,7 @@ qemu-img create -b "${type_base_img}" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/n
 ch_success=0
 while :; do
   for _ in {1..3}; do
-    if sudo bash -c "_uid="$(id -u)"; _gid="$(id -g)"; owner_changer_flag='${owner_changer_flag}'; $(declare -f restore_owner); $(declare -f change_owner); change_owner '/dev/bus/usb/${f_hostbus}/${f_hostaddr}'"; then
+    if sudo bash -c "owner_changer_flag='${owner_changer_flag}'; $(declare -f restore_owner); $(declare -f change_owner); change_owner '/dev/bus/usb/${f_hostbus}/${f_hostaddr}' '$(id -u):$(id -g)'"; then
       while [ ! -e "${owner_changer_flag}" ]; do :; done
       sleep 0.1
       exec 5<> "${owner_changer_flag}"

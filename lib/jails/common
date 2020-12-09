@@ -46,7 +46,7 @@ check_ssh_agent() {
 find_open_port() {
   local port="$1"
 
-  while lsof -Pnti tcp:${port} -s tcp:listen &> /dev/null && lsof -Pnti tcp:$((port + 1)) -s tcp:listen; do
+  while lsof -Pnti tcp:"${port}" -s tcp:listen &> /dev/null && lsof -Pnti tcp:$((port + 1)) -s tcp:listen; do
     port=$((port + 1))
   done
   printf "%s" "$port"
@@ -54,13 +54,15 @@ find_open_port() {
 
 wait_for_ssh_or_die() {
   local port="$1"
-  local can_ssh=0
+  local can_ssh
+
+  can_ssh=0
 
   printf "waiting for ssh to be available."
-  while ! lsof -Pnti tcp:${port} -s tcp:listen &> /dev/null; do printf .; sleep 0.1; done
+  while ! lsof -Pnti "tcp:${port}" -s tcp:listen &> /dev/null; do printf .; sleep 0.1; done
   for _ in {0..299}; do
     # bug in setup: -T hangs instead of returning immediately
-    if ssh -qp $port -o ConnectTimeout=1 -o StrictHostKeyChecking=no localhost : &> /dev/null; then
+    if ssh -qp "$port" -o ConnectTimeout=1 -o StrictHostKeyChecking=no localhost : &> /dev/null; then
       can_ssh=1
       break
     fi
@@ -86,17 +88,22 @@ stage_overlay() {
   check_ssh_agent
 
   local pkg="$1"
-  shift
-  local pkg_name="$(basename "$pkg")"
-  local name="$(name_from_pkg "$pkg_name")"
-  local img_name="${name}.${kiosk_img}"
+  local pkg_name
+  local name
+  local img_name
+  local port
+
+  pkg_name="$(basename "$pkg")"
+  name="$(name_from_pkg "$pkg_name")"
+  img_name="${name}.${kiosk_img}"
+
   if [ ! -f "${pkg}" ]; then
     usage >&2
     exit $EXIT_FAILURE_PKG_NOT_FILE
   fi
 
-  local port="$(find_open_port 2000)"
-  printf "local ssh ports: %d\n" $port
+  port="$(find_open_port 2000)"
+  printf "local ssh ports: %d\n" "$port"
 
   cd_or_die "$qemu_base_dir"
   rm "${img_name}" &> /dev/null
@@ -106,8 +113,8 @@ stage_overlay() {
   cd_or_die "$OLDPWD"
 
   wait_for_ssh_or_die "$port"
-  scp -P $port -o StrictHostKeyChecking=no "$pkg" localhost:/root/
-  cat << EOF | ssh -p $port -o StrictHostKeyChecking=no localhost
+  scp -P "$port" -o StrictHostKeyChecking=no "$pkg" localhost:/root/
+  cat << EOF | ssh -p "$port" -o StrictHostKeyChecking=no localhost
     export DEBIAN_FRONTEND=noninteractive
     printf "${name} jail" > /etc/motd
     dpkg -i "/root/${pkg_name}"
@@ -122,5 +129,5 @@ EOF
   wait
 
   chmod 0444 "${qemu_base_dir}/${img_name}"
-  printf "Finished setting up ${name} jail!\n"
+  printf "Finished setting up %s jail!\n" "${name}"
 }

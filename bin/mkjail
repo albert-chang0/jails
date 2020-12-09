@@ -1,10 +1,13 @@
 #!/usr/bin/bash
 _CMD="$0"
 _CMD_ABS="$(realpath "$_CMD")"
+# shellcheck disable=SC2034
+# nice to always have around
 _ME="$(basename "$_CMD_ABS")"
 _HOME="$(dirname "$_CMD_ABS")"
 _LIB="${_HOME}/../lib/jails"
 
+# shellcheck source=lib/jails/common
 . "${_LIB}/common"
 
 usage() {
@@ -20,7 +23,6 @@ if [ $# -ne 1 ]; then
 fi
 
 pkg="$1"
-shift
 pkg_name="$(basename "$pkg")"
 name="$(name_from_pkg "$pkg_name")"
 mkjail_specific="${_CMD_ABS}.${name}"

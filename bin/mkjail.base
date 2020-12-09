@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 _CMD="$0"
 _CMD_ABS="$(realpath "$_CMD")"
+# shellcheck disable=SC2034
+# nice to always have around
 _ME="$(basename "$_CMD_ABS")"
 _HOME="$(dirname "$_CMD_ABS")"
 _LIB="${_HOME}/../lib/jails"
 
+# shellcheck source=lib/jails/common
 . "${_LIB}/common"
 
 usage() {
@@ -15,15 +18,14 @@ check_deps cpio genisoimage qemu-img qemu-system-x86_64
 check_perms
 if [ $# -ne 1 ]; then
   usage >&2
-  exit $EXIT_dieURE_MISSING_PKG
+  exit $EXIT_FAILURE_MISSING_PKG
 fi
 
 iso_file="$(realpath "$1")"
-shift
 
 if [ ! -f "${iso_file}" ]; then
   usage >&2
-  exit $EXIT_dieURE_PKG_NOT_FILE
+  exit $EXIT_FAILURE_PKG_NOT_FILE
 fi
 check_ssh_agent
 
@@ -49,6 +51,7 @@ find "${deb_stage}/isolinux" -name '*.cfg' -exec sed -i -e '/auto=true/s/\(.*\) 
 
 cd_or_die "${deb_stage}"
 chmod +w md5sum.txt
+# shellcheck disable=SC2094
 find . -follow -type f ! -name md5sum.txt -print0 | xargs -0 md5sum > md5sum.txt
 chmod -w md5sum.txt
 cd_or_die "${OLDPWD}"
