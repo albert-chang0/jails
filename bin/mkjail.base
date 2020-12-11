@@ -38,10 +38,13 @@ umount "${deb_mount}"
 rm -r "${deb_mount}"
 
 install_dir="$(find "${deb_stage}" -mindepth 1 -maxdepth 1 -name 'install.*')"
+preseed_file="${deb_stage}/preseed.cfg"
 
 chmod +w -R "${install_dir}"
 gunzip "${install_dir}/initrd.gz"
-install -m0666 "${_LIB}/preseed.cfg" "${deb_stage}/preseed.cfg"
+install -m0666 "${_LIB}/preseed.cfg" "${preseed_file}"
+preseed_gen_passwd "${preseed_file}"
+preseed_ssh_key "${preseed_file}"
 printf 'preseed.cfg\n' | cpio -D "${deb_stage}" -H newc -o -A -F "${install_dir}/initrd"
 gzip "${install_dir}/initrd"
 chmod -w -R "${install_dir}"
@@ -77,7 +80,7 @@ wait_for_ssh_or_die "$local_port"
 cat << EOF | ssh -p "${local_port}" -o StrictHostKeyChecking=no localhost
 DEBIAN_FRONTEND=noninteractive apt -y install xserver-common xinit xterm alsa-utils firefox-esr wm2
 apt clean
-printf '\n\nif [ -z "\${DISPLAY}\" ] && [ "\${XDG_VTNR}\" -eq 1 ]; then\n  exec startx\nfi' >> /home/user/.bashrc
+printf '\n\nif [ -z "\${DISPLAY}\" ] && [ -n "\${XDG_VTNR}\" ] && [ "\${XDG_VTNR}\" -eq 1 ]; then\n  exec startx\nfi' >> /home/user/.bashrc
 sed -i -E -e 's/^#(NAutoVTs)=[0-9]+$/\1=0/' -e 's/^#(ReserveVT)=[0-9]+$/\1=1/' /etc/systemd/logind.conf
 mkdir -p /etc/systemd/system/getty@tty1.service.d /etc/systemd/system/getty.target.wants
 printf '[Service]\nExecStart=\nExecStart=-/usr/sbin/agetty --autologin user %%I xterm' > /etc/systemd/system/getty@tty1.service.d/override.conf

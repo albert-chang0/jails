@@ -93,6 +93,7 @@ stage_overlay() {
   local img_name
   local port
 
+  shift
   pkg_name="$(basename "$pkg")"
   name="$(name_from_pkg "$pkg_name")"
   img_name="${name}.${kiosk_img}"
@@ -131,3 +132,47 @@ EOF
   chmod 0444 "${qemu_base_dir}/${img_name}"
   printf "Finished setting up %s jail!\n" "${name}"
 }
+
+preseed_ssh_key() {
+  local preseed_file="$1"
+  local cfg_dir
+  local ssh_key_file_name
+  local ssh_key_loc
+  local ssh_key
+
+  cfg_dir="${XDG_CONFIG_HOME}/jails"
+  ssh_key_file_name="root_ssh_key"
+  ssh_key_loc="${cfg_dir}/${ssh_key_file_name}"
+
+  if [ ! -e "${ssh_key_loc}" ]; then
+    printf "missing root user's ssh public key file %s\n" "${ssh_key_loc}" >&2
+    exit "$EXIT_FAILURE_MISSING_DEPENDENCIES"
+  fi
+
+  ssh_key="$(awk '/^ssh-/ {print $2; exit}' "$ssh_key_loc")"
+
+  if [ -z "${ssh_key}" ]; then
+    printf "ssh key not found\n" >&2
+    exit "$EXIT_FAILURE_MISSING_DEPENDENCIES"
+  fi
+
+  if ! ssh-add -L | grep "${ssh_key}"; then
+    printf "ssh key not in represented by agent\n" >&2
+    exit "$EXIT_FAILURE_MISSING_DEPENDENCIES"
+  fi
+
+  printf "printf '%s' > /target/root/.ssh/authorized_keys" "$(cat "${ssh_key_loc}" | tr -d '\n')" >> "${preseed_file}"
+}
+
+gen_rand_passwd() {
+  uuidgen -r | openssl passwd -6 -stdin
+}
+
+preseed_gen_passwd() {
+  local preseed_file="$1"
+
+  printf 'd-i passwd/root-password-crypted password %s\n' "$(gen_rand_passwd)" >> "${preseed_file}"
+  printf 'd-i passwd/user-password-crypted password %s\n' "$(gen_rand_passwd)" >> "${preseed_file}"
+}
+
+check_deps uuidgen openssl
