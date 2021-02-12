@@ -26,7 +26,7 @@ restore_owner() {
   while lsof "${owner_changer_flag}" &> /dev/null; do
     sleep 10
   done
-  rm "${owner_changer_flag}"
+  rm "${owner_changer_flag}" &> /dev/null
   chown "${og}" "${usb_dev}"
 }
 
