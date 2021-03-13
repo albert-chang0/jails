@@ -61,6 +61,9 @@ if [ ! -f "$type_base_img" ]; then
   exit $EXIT_FAILURE_BASE_IMG_NOT_FOUND
 fi
 
+pa_pid="${XDG_RUNTIME_DIR}/pulse/pid"
+[ -e "$pa_pid" ] || pgrep pipewire-pulse > "$pa_pid"
+
 rm "$overlay_loc" &> /dev/null
 qemu-img create -b "${type_base_img}" -F qcow2 -f qcow2 "$overlay_loc" &> /dev/null
 ch_success=0
